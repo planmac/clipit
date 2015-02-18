@@ -1,15 +1,20 @@
-# clipit.tcl
-#    planmac at gmail dot com
-#    February 2015
-#
-# Copy any text into the system clipboard from any application,
-# then click on the "ClipiT" label and it stores that text for later.
-# Click on the stored text to yank that text back to the system clipboard,
-# and then paste from the system clipboard into any application.
-# Click on the "x" to destroy saved clips.
+##############
+# clipit.tcl #
+##############
+# planmac at gmail dot com
+# February 2015
+# Version 0.42
+
+# TODO
+# Make colors cross-platform
+# Allow to Alt-Tab to ClipiT (on all platforms)
+# Add proper message to the About splash
+# Cascade hover to label and its frame (tidy up for shorter text)
 
 package require Tk
+package require Ttk
 
+#Use custom quit, no window decporations, pin to top left of screen
 wm protocol . WM_DELETE_WINDOW quit
 wm overrideredirect . 1
 #wm title . "ClipiT 0.42"
@@ -18,49 +23,89 @@ wm resizable . 0 0
 
 #The active top line of the window
 pack [frame .top ] -side top -fill x -expand 1
-pack [button .quit -text x -font {-size 8} -background orange -command quit] -in .top -side right
+pack [button .about -text i -font {size 8} \
+        -command about] -in .top -side left
+pack [button .quit -text x -font {-size 8} -background plum \
+        -command quit] -in .top -side right
 
-#Left-click to save text, right-click to quit
-pack [label .lab -text "ClipiT 0.42"] -in .top -side left -fill x -expand 1
+#Left-click on title to add current clipboard contents,
+#right-click on title to quit (in case the button is not available).
+pack [label .lab -text "ClipiT 0.42"] -in .top \
+  -side left -fill x -expand 1
 bind .lab <Enter> {.lab configure -foreground white -background lightBlue}
 bind .lab <Leave> {.lab configure -foreground SystemButtonText -background SystemButtonFace}
 bind .lab <ButtonPress-1> clip
 bind .lab <ButtonPress-3> quit
 
-#Copy clipboard contents into ClipiT,
-#keeping count of how many are clipped
+#An about splash
+proc about {} {
+  tk_messageBox -type ok -message "ClipiT 0.42" \
+    -detail \
+"Copy text to the system clipboard from any application\n\
+then click on the ClipiT label to add a new entry.\n\n\
+Click on the text of an entry to yank it back to the system clipboard\n\
+then paste it into any application as normal.\n\n\
+Right click on the text of an entry to show/edit the full text\n\
+and click Save to add the modified text as a new entry.\n\n\
+Click on the x to delete an entry or the top-right x to quit,\n\
+or right click on the ClipiT label to quit.\n\n\
+planmac at gmail dot com\n\
+February 2015"
+}
+
 proc clip {} {
-  global i
-  if {[catch {clipboard get} cont]} {
-    tk_messageBox \
-      -message "Clipboard empty!" \
-      -type ok \
-      -icon warning
+  if { [set txt [gettext]] != "" } {newitem $txt}
+}
+
+#Get text from the system clipboard, return empty string if none
+proc gettext {} {
+  if {[catch {clipboard get} txt]} {
+    tk_messageBox -message "Clipboard empty!" \
+      -type ok -icon warning
+    return ""
   } else {
-    set f .i[incr i]
-
-    #Limit length of displayed string to 20ish characters, 
-    #and keep the full string in an un-packed label 
-    if {[set len [string length $cont]] > 20} {
-      set disp "[string range $cont 0 17]..<[expr $len-19]>"
-    } else {
-      set disp $cont
-    }
-
-    pack [frame $f] -side top -fill x
-    pack [label $f.l -text $disp] -side left -fill x
-    label $f.t -text $cont
-    pack [button $f.b -text x -font {-size 8} -command "destroy $f" -activebackground lightBlue] -side right
-
-    bind $f.l <Enter> "$f.l configure -foreground white -background lightBlue"
-    bind $f.l <Leave> "$f.l configure -foreground SystemButtonText -background SystemButtonFace"
-    bind $f.l <ButtonPress-1> "yank $f"
-    bind $f.l <ButtonPress-3> "show $f"
-    
+    return $txt
   }
 }
 
-#Yank clicked text back to the clipboard
+#Add text as new entry, return the widget path
+proc newitem {txt} {
+  #Keep a global count of number of entries
+  global i
+  set f .i[incr i]
+
+  #Limit length of displayed string to 20ish characters, 
+  #and keep the full string in an un-packed label $f.t
+  if {[set len [string length $txt]] > 20} {
+    set vis "[string range $txt 0 17]..<[expr $len-19]>"
+  } else {
+    set vis $txt
+  }
+
+  #New entry with possibly truncated text, 
+  #store full text in an un-rendered widget
+  pack [frame $f] -side top -fill x
+  pack [label $f.l -text $vis] -side left -fill x
+  label $f.t -text $txt
+
+  #Button to delete the entry
+  pack [button $f.b -text x -font {-size 8} \
+        -command "destroy $f" \
+        -activebackground lightBlue] \
+    -side right
+
+  #Change background colors when pointer hovers,
+  #Left-click to yank it to the system clipboard, 
+  #Right-click to show the full text.
+  bind $f.l <Enter> "$f.l configure -foreground white -background lightBlue"
+  bind $f.l <Leave> "$f.l configure -foreground SystemButtonText -background SystemButtonFace"
+  bind $f.l <ButtonPress-1> "yank $f"
+  bind $f.l <ButtonPress-3> "show $f"
+  
+  return $f
+}
+
+#Yank full text of clicked entry back to the system clipboard
 proc yank {f} {
   set txt [$f.t cget -text]
   clipboard clear
@@ -68,49 +113,51 @@ proc yank {f} {
   $f.b flash
 }
 
-#Show the full text
+#Show full text of clicked entry, and offer to edit
 proc show {f} {
-  set txt [$f.t cget -text]
-  switch -- [tk_messageBox -message "Edit this text?" \
-               -detail $txt -type yesno -icon info] \
-  {
-    yes "edit $f"
-    no  {}
-  }
-}
 
-proc edit {f} {
-  toplevel .edit
-  set txt [$f.t cget -text]
-  pack [text .edit.txt ] -side top -fill both -expand 1
-  .edit.txt replace 0.0 end $txt
-  pack [frame .edit.frm ] -side bottom -fill x 
-  pack [button .edit.frm.can -text Cancel -command {destroy .edit}] -side right
-  pack [button .edit.frm.sav -text Save -command "save $f .edit"] -side right
-}
+  #New toplevel
+  toplevel .e
+  wm title .e "ClipiT 0.42"
 
-#Save the edited text
-proc save {f t} {
-  set txt [$t.txt get 0.0 end]
+  #Frame with vertical scrollbar and text edit widget
+  pack [frame .e.f] -side top -fill both -expand 1
+  pack [ttk::scrollbar .e.f.scroll -orient vertical \
+        -command {.e.f.txt yview}] \
+    -side right -fill y
+  pack [text .e.f.txt -yscrollcommand {.e.f.scroll set}] \
+    -side top -fill both -expand 1
 
-  #Can do this more efficiently!
-  clipboard clear
-  clipboard append $txt
-  clip
+  #Get txt from un-packed widget and put into text widget
+  .e.f.txt replace 0.0 end [$f.t cget -text]
 
-  destroy $t
+  #Make the button frame
+  pack [frame .e.b ] -side bottom -fill x 
+  pack [label .e.b.spacer -width 2] -side right 
+  
+  #Cancel: just destroys this toplevel
+  pack [ttk::button .e.b.can -text Cancel -command {destroy .e}] \
+    -side right -padx 4 -pady 12
+
+  #Save: gets possibly changed text from the text edit widget, 
+  #(skipping last lineend char), create a new entry in ClipiT,
+  # and destroy this toplevel.
+  pack [ttk::button .e.b.sav -text Save \
+        -command { \
+          newitem [.e.f.txt get 0.0 {end - 1 chars}]; \
+          destroy .e }] \
+    -side right -padx 4 -pady 12
+
+  #?How to make Save button the default
 }
 
 #Really quit?
 proc quit {} {
   switch -- [tk_messageBox \
                -message "Do you really want to quit ClipiT?" \
-               -icon question \
-               -type yesno] \
+               -icon question -type yesno] \
     {
       yes exit
-      no  {tk_messageBox \
-             -message "Cool.. thanks for keeping me alive!" \
-             -type ok}
+      no  {}
     }
 }
